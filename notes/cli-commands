@@ -16,6 +16,7 @@ options:
   -v            verbose, log extra information
 
 modes:
+  init          initialize the package database
   install       install a package by name or path
   update        update listed packages or if none provided all packages
   remove        remove listed packages
