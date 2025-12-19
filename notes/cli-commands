@@ -1,0 +1,28 @@
+
+usage: lpkg [option...] mode [mode_option...] [mode_arguement...]
+       lpkg install package [package...]
+       lpkg update [package...]
+       lpkg remove [package...]
+       lpkg autoremove
+       lpkg info package
+       lpkg list
+       lpkg dbquery sql_stmt
+
+Leaf Package Manager, a binary package manager for unix-like systems.
+
+options:
+  -f dbfile     use alternate database file
+  -t            terse, log only necessary information
+  -v            verbose, log extra information
+
+modes:
+  install       install a package by name or path
+  update        update listed packages or if none provided all packages
+  remove        remove listed packages
+  autoremove    remove orphaned packages
+  info          query information about a package
+  list          query a list of installed packages
+  dbquery       direct manipulation of the database
+  help          display this page
+  version       display version and copyright page
+

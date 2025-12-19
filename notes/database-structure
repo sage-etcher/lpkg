@@ -1,0 +1,38 @@
+
+copy_on_write
+non_destructive
+
+/var/db/lpkg/lpkg_core.db
+log table:
+  transaction_id INTEGER PRIMARY_KEY
+  user STRING
+  datetime INTEGER
+  action STRING
+
+file_ownership table:
+  file_id INTEGER PRIMARY_KEY
+  package_id INTEGER FOREIGN_KEY
+  path STRING
+  checksum STRING
+  active BOOLEAN
+
+package table:
+  package_id INTEGER PRIMARY_KEY
+  name STRING
+  version STRING
+  license STRING
+  homepage STRING
+  pkg_revision INTEGER
+  pkg_maintainer_name STRING
+  pkg_maintainer_email STRING
+  automatic BOOLEAN
+  active BOOLEAN
+
+dependency table:
+  dependency_id INTEGER PRIMARY_KEY
+  package_id INTEGER FOREIGN_KEY
+  dep_name STRING
+  dep_ver_min STRING
+  dep_ver_max STRING
+  active BOOLEAN
+
