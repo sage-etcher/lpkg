@@ -1,6 +1,7 @@
 
 #include "mode.h"
 
+#include "conio.h"
 #include "dbio.h"
 #include "lpkg.h"
 
@@ -21,29 +22,6 @@ static int prompt (const char *prompt);
 static int file_exists (const char *filepath);
 
 static int pkgdb_init (int yflag);
-
-
-static int
-prompt (const char *prompt)
-{
-    char *line = NULL;
-    size_t line_size = 0;
-    char c = 0;
-
-    fprintf (stdout, "%s", prompt);
-    fflush (stdout);
-
-    (void)getline (&line, &line_size, stdin);
-    assert (line != NULL);
-
-    c = tolower (*line);
-
-    free (line);
-    line = NULL;
-    line_size = 0;
-
-    return c;
-}
 
 static int
 file_exists (const char *filepath)
