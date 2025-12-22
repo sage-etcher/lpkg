@@ -1,5 +1,6 @@
 
 lpkg_srcs = [
+  'dbio.c',
   'lpkg.c',
   'main.c',
   'mode_dbquery.c',
@@ -12,7 +13,7 @@ lpkg = executable(
   'lpkg', 
   lpkg_srcs, 
   dependencies : [
-    libsqlite3_dep
+    libsqlite3_dep,
   ],
 )
 
