@@ -8,20 +8,17 @@
 #include <sqlite3.h>
 
 #include <assert.h>
-#include <ctype.h>
 #include <getopt.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
 
-static int prompt (const char *prompt);
 static int file_exists (const char *filepath);
-
+static void init_usage (void);
 static int pkgdb_init (int yflag);
+
 
 static int
 file_exists (const char *filepath)
@@ -50,7 +47,6 @@ lpkg_init_main (int argc, char **argv)
         switch (ch)
         {
         case 'y': yflag = 1; break;
-
         default:
             init_usage ();
         }

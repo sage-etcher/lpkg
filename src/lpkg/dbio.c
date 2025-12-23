@@ -138,7 +138,8 @@ db_close (sqlite3 *db)
 int
 db_init_tables (sqlite3 *db)
 {
-    const char DB_CREATE_TABLES[] = { /* {{{ */
+    const char DB_CREATE_TABLES[] = { 
+        /* {{{ */
         "CREATE TABLE transaction_log ("
             "transaction_id INTEGER PRIMARY KEY ASC AUTOINCREMENT"
             ",user TEXT"
@@ -236,18 +237,37 @@ cleanup:
 }
 
 int
-db_transaction (sqlite3 *db, const char *msg)
+db_transaction (sqlite3 *db, const char *fmt, ...)
 {
+    va_list args, args_cpy;
+    int rc = 0;
     const char *user = getenv ("USER");
     time_t unix_time = time (NULL);
     struct tm *tm = localtime (&unix_time);
+    char *msg = NULL;
+    int msg_n = 0;
 
     enum { DATE_MAX = 19 };
     char date[DATE_MAX+1] = { 0 };
 
     (void)strftime (date, DATE_MAX+1, "%Y-%m-%d %H:%M:%S", tm);
 
-    return db_insert_transaction (db, msg, user, date, unix_time);
+    va_start (args, fmt);
+    va_start (args_cpy, fmt);
+    msg_n = vsnprintf (NULL, 0, fmt, args);
+
+    assert (msg_n > 0);
+    msg = malloc (msg_n + 1);
+    assert (msg != NULL);
+    (void)vsnprintf (msg, msg_n + 1, fmt, args_cpy);
+
+    va_end (args);
+    va_end (args_cpy);
+
+    rc = db_insert_transaction (db, msg, user, date, unix_time);
+
+    free (msg);
+    return rc;
 }
 
 int
