@@ -46,7 +46,9 @@ cc.has_header('sys/stat.h', required : true)
 cc.has_header('unistd.h',   required : true)
 
 # get dependencies
-libsqlite3_dep = dependency('sqlite3', required : true)
+sqlite3_dep = dependency('sqlite3', required : true)
+inih_dep = dependency('inih', required : true)
+libarchive_dep = dependency('libarchive', required : true)
 
 # build instructions
 subdir('src')

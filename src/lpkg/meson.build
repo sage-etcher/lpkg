@@ -2,19 +2,23 @@
 lpkg_srcs = [
   'conio.c',
   'dbio.c',
+  'fileio.c',
   'lpkg.c',
   'main.c',
   'mode_dbquery.c',
   'mode_init.c',
   'mode_install.c',
   'mode_unimplemented.c',
+  'unpack.c',
 ]
 
 lpkg = executable(
   'lpkg', 
   lpkg_srcs, 
   dependencies : [
-    libsqlite3_dep,
+    inih_dep,
+    libarchive_dep,
+    sqlite3_dep,
   ],
 )
 
