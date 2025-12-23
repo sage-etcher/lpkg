@@ -9,6 +9,7 @@ lpkg_srcs = [
   'mode_init.c',
   'mode_install.c',
   'mode_unimplemented.c',
+  'package.c',
   'unpack.c',
 ]
 

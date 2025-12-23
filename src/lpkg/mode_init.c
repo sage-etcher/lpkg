@@ -3,6 +3,7 @@
 
 #include "conio.h"
 #include "dbio.h"
+#include "fileio.h"
 #include "lpkg.h"
 
 #include <sqlite3.h>
@@ -15,18 +16,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static int file_exists (const char *filepath);
 static void init_usage (void);
 static int pkgdb_init (int yflag);
-
-
-static int
-file_exists (const char *filepath)
-{
-    FILE *fp = fopen (filepath, "r");
-    (void)fclose (fp);
-    return (fp != NULL);
-}
 
 static void
 init_usage (void)
