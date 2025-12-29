@@ -9,6 +9,7 @@ lpkg_srcs = [
   'mode_dbquery.c',
   'mode_init.c',
   'mode_install.c',
+  'mode_remove.c',
   'mode_unimplemented.c',
   'package.c',
   'stb_ds.c',
