@@ -1,11 +1,13 @@
 
 #include "mode.h"
 
+#include "conio.h"
 #include "dbio.h"
 #include "fileio.h"
 #include "lpkg.h"
 #include "package.h"
 #include "unpack.h"
+#include "version.h"
 
 #include <ini.h>
 #include <sqlite3.h>
@@ -17,7 +19,7 @@
 #include <unistd.h>
 #include <string.h>
 
-static int pkg_install (char *pkg, int fflag);
+static int pkg_install (char *pkg, int yflag);
 
 static void
 install_usage (void)
@@ -29,14 +31,14 @@ install_usage (void)
 int
 lpkg_install_main (int argc, char **argv)
 {
-    int ch, fflag;
+    int ch, yflag = 0;
 
     optind = 1;
-    while ((ch = getopt (argc, argv, "+f")) != -1)
+    while ((ch = getopt (argc, argv, "+y")) != -1)
     {
         switch (ch)
         {
-        case 'f': fflag = 1; break;
+        case 'y': yflag = 1; break;
 
         default:
             install_usage ();
@@ -52,7 +54,7 @@ lpkg_install_main (int argc, char **argv)
 
     while (argc > 0)
     {
-        if (pkg_install (*argv, fflag))
+        if (pkg_install (*argv, yflag))
         {
             fprintf (stderr, "error: failed to install package - %s\n", *argv);
             exit (EXIT_FAILURE);
@@ -115,7 +117,7 @@ handler (void *user, const char *section, const char *name, const char *value)
 
 
 static int
-pkg_install (char *pkg_name, int fflag)
+pkg_install (char *pkg_name, int yflag)
 {
     int rc = 0;
     sqlite3 *db = NULL;
@@ -124,6 +126,7 @@ pkg_install (char *pkg_name, int fflag)
     package_t old_pkg = { 0 };
     int ver_cmp = 0;
     int rev_cmp = 0;
+    int c = 0;
 
     /* check if pkg_name exists */
     if (!file_exists (pkg_name))
@@ -156,11 +159,10 @@ pkg_install (char *pkg_name, int fflag)
         return -1;
     }
 
-#if 0
     /* check if database has a package by the same name */
     package_init (&old_pkg);
     rc = db_get_package (db, new_pkg.program_name, &old_pkg);
-    if (rc == 0)
+    if (rc == SQLITE_ROW)
     {
         /* compare versions+revision of old package vs new */
         ver_cmp = version_cmp (old_pkg.program_version, new_pkg.program_version);
@@ -180,7 +182,7 @@ pkg_install (char *pkg_name, int fflag)
         }
         else 
         {
-            fprintf ("error: failed to compare package versioning\n");
+            fprintf (stderr, "error: failed to compare package versioning\n");
             package_free (&old_pkg);
             package_free (&new_pkg);
             return -1;
@@ -198,14 +200,26 @@ pkg_install (char *pkg_name, int fflag)
             }
         }
 
-        db_package_uninstall (db, &old_pkg);
+        rc = db_package_uninstall (db, &old_pkg);
+        if (rc != SQLITE_OK)
+        {
+            fprintf (stderr, "error: failure to remove package\n");
+            package_free (&old_pkg);
+            package_free (&new_pkg);
+            return -1;
+        }
     }
 
-    db_package_install (db, &new_pkg);
+    rc = db_package_install (db, &new_pkg);
+    if (rc != SQLITE_OK)
+    {
+        fprintf (stderr, "error: failure to install package\n");
+        package_free (&old_pkg);
+        package_free (&new_pkg);
+        return -1;
+    }
 
     package_free (&old_pkg);
-#endif
-
     package_free (&new_pkg);
     return 0;
 }

@@ -2,6 +2,7 @@
 lpkg_srcs = [
   'conio.c',
   'dbio.c',
+  'dbmap.c',
   'fileio.c',
   'lpkg.c',
   'main.c',
@@ -10,7 +11,9 @@ lpkg_srcs = [
   'mode_install.c',
   'mode_unimplemented.c',
   'package.c',
+  'stb_ds.c',
   'unpack.c',
+  'version.c',
 ]
 
 lpkg = executable(
