@@ -119,6 +119,7 @@ handler (void *user, const char *section, const char *name, const char *value)
 static int
 pkg_install (char *pkg_name, int yflag)
 {
+    int rc = -1;
     sqlite3 *db = NULL;
     char *package_ini = NULL;
     package_t new_pkg = { 0 };
@@ -181,9 +182,7 @@ pkg_install (char *pkg_name, int yflag)
         else 
         {
             fprintf (stderr, "error: failed to compare package versioning\n");
-            package_free (&old_pkg);
-            package_free (&new_pkg);
-            return -1;
+            goto early_exit;
         }
 
         if (!yflag)
@@ -192,32 +191,28 @@ pkg_install (char *pkg_name, int yflag)
             if (c == 'n')
             {
                 printf ("cancelling package install\n");
-                package_free (&old_pkg);
-                package_free (&new_pkg);
-                return -1;
+                goto early_exit;
             }
         }
 
         if (db_package_uninstall (db, &old_pkg))
         {
             fprintf (stderr, "error: failure to remove package\n");
-            package_free (&old_pkg);
-            package_free (&new_pkg);
-            return -1;
+            goto early_exit;
         }
     }
 
     if (db_package_install (db, &new_pkg))
     {
         fprintf (stderr, "error: failure to install package\n");
-        package_free (&old_pkg);
-        package_free (&new_pkg);
-        return -1;
+        goto early_exit;
     }
 
+    rc = 0;
+early_exit:
     package_free (&old_pkg);
     package_free (&new_pkg);
-    return 0;
+    return rc;
 }
 
 

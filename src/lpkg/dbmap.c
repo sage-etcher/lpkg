@@ -12,23 +12,35 @@ int
 dbmap_bind (sqlite3_stmt *stmt, sql_map_t *input)
 {
     int rc = 0;
-    int i = shlen (input);
+
+    int i = 0;
+    int n = 0;
+    const char *column_name = NULL;
+
     int index = 0;
     sql_value_t *p_val = NULL;
 
     assert (stmt != NULL);
 
-    for (--i; i >= 0; i--)
+    n = sqlite3_bind_parameter_count (stmt);
+    for (i = 0; i < n; i++)
     {
-        index = sqlite3_bind_parameter_index (stmt, input[i].key);
-        if (index <= 0)
+        /* get column name */
+        column_name = sqlite3_bind_parameter_name (stmt, i);
+
+        /* get mapped value */
+        index = shgeti (input, column_name);
+        if (index == -1)
         {
+            fprintf (stderr, "error: dbmap_bind missing column - %s\n",
+                    column_name);
             sqlite3_reset (stmt);
             return SQLITE_ERROR;
         }
 
-        p_val = &input[i].value;
+        p_val = &input[index].value;
 
+        /* bind by value type */
         switch (p_val->sql_type)
         {
         case SQLITE_INTEGER: 
@@ -49,6 +61,7 @@ dbmap_bind (sqlite3_stmt *stmt, sql_map_t *input)
             return SQLITE_ERROR;
         }
 
+        /* log error for failed binds */
         if (rc != SQLITE_OK)
         {
             fprintf (stderr, "error: bind failed for arguement - %s\n", 
@@ -165,6 +178,61 @@ early_exit:
     sqlite3_reset (stmt);
     sqlite3_finalize (stmt);
     return rc;
+}
+
+int
+dbmap_execute_v2 (sqlite3 *db, const char *sql, sql_map_t *input, 
+        int (*callback)(void *, sql_map_t *), void *user)
+{
+    int sql_rc = 0;
+    sqlite3_stmt *stmt = NULL;
+    sql_map_t *output;
+
+    assert (db  != NULL);
+    assert (sql != NULL);
+
+    do {
+        /* prepare statement in `sql`, return next statement in `sql` */
+        sql_rc = sqlite3_prepare_v2 (db, sql, -1, &stmt, &sql);
+        if (sql_rc != SQLITE_OK)
+        {
+            fprintf (stderr, "error: failure to prepare SQL statement - %s\n",
+                    sqlite3_errstr (sql_rc));
+            goto early_exit;
+        }
+
+        /* bind parameters to statement */
+        sql_rc = dbmap_bind (stmt, input);
+        if (SQLITE_OK != sql_rc) goto early_exit;
+
+        /* execute the statement */
+        while (SQLITE_ROW == (sql_rc = dbmap_step (stmt, &output)))
+        {
+            if (callback == NULL) continue;
+            if (callback (user, output))
+            {
+                fprintf (stderr, "warning: callback cancelled\n");
+                goto early_exit;
+            }
+        }
+
+        if (sql_rc != SQLITE_DONE)
+        {
+            fprintf (stderr, "error: failure to step SQL statement - %s\n",
+                    sqlite3_errstr (sql_rc));
+            goto early_exit;
+        }
+
+        /* destroy the statement */
+    early_exit:
+        sqlite3_reset (stmt);
+        sqlite3_finalize (stmt);
+
+        shfree (output);
+        output = NULL;
+    } while ((sql_rc == SQLITE_DONE) && (sql != NULL) && (*sql != '\0'));
+
+    return sql_rc;
 }
 
 

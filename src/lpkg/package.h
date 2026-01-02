@@ -24,7 +24,8 @@ typedef struct {
 void package_init (package_t *self);
 void package_free (package_t *self);
 
-int package_from_map (package_t *self, sql_map_t *map);
+package_t package_from_map (sql_map_t *map);
+sql_map_t *package_to_map (package_t *pkg);
 
 void package_log (package_t *self);
 

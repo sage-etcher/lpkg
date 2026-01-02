@@ -6,8 +6,28 @@
 #include <stb_ds.h>
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+#define TO_MAP(elem, def, t_fn)                                         \
+    do {                                                                \
+        if (pkg->elem != (def)) shput (map, #elem, t_fn (pkg->elem));   \
+    } while (0)
+
+#define FROM_MAP(elem, def, value)                                      \
+    do {                                                                \
+        index = shgeti (map, #elem);                                    \
+        if (index == -1)                                                \
+        {                                                               \
+            pkg.elem = def;                                             \
+        }                                                               \
+        else                                                            \
+        {                                                               \
+            pkg.elem = value;                                           \
+        }                                                               \
+    } while (0)
 
 
 void
@@ -16,19 +36,66 @@ package_init (package_t *self)
     *self = (package_t){
         .package_id = 0,
 
-        .program_name = NULL,
-        .program_version = NULL,
-        .program_license = NULL,
+        .program_name     = NULL,
+        .program_version  = NULL,
+        .program_license  = NULL,
         .program_homepage = NULL,
 
-        .package_revision = 0,
-        .package_automatic = 0,
+        .package_revision  = -1,
+        .package_automatic = -1,
+        .package_active    = -1,
         .package_dependencies = NULL,
-        .package_active = 1,
 
-        .maintainer_name = NULL,
+        .maintainer_name  = NULL,
         .maintainer_email = NULL,
     };
+}
+
+sql_map_t *
+package_to_map (package_t *pkg)
+{
+    sql_map_t *map = NULL;
+
+    TO_MAP (package_id, 0, SQLVAL_I);
+
+    TO_MAP (program_name,     NULL, SQLVAL_S);
+    TO_MAP (program_version,  NULL, SQLVAL_S);
+    TO_MAP (program_license,  NULL, SQLVAL_S);
+    TO_MAP (program_homepage, NULL, SQLVAL_S);
+
+    TO_MAP (package_revision,  -1, SQLVAL_I);
+    TO_MAP (package_automatic, -1, SQLVAL_I);
+    TO_MAP (package_active,    -1, SQLVAL_I);
+    TO_MAP (package_dependencies, NULL, SQLVAL_S);
+
+    TO_MAP (maintainer_name,  NULL, SQLVAL_S);
+    TO_MAP (maintainer_email, NULL, SQLVAL_S);
+
+    return map;
+}
+
+package_t
+package_from_map (sql_map_t *map)
+{
+    package_t pkg;
+    int index = -1;
+
+    FROM_MAP (package_id, 0, map[index].value.m.i);
+
+    FROM_MAP (program_name,     NULL, strdup (map[index].value.m.s));
+    FROM_MAP (program_version,  NULL, strdup (map[index].value.m.s));
+    FROM_MAP (program_license,  NULL, strdup (map[index].value.m.s));
+    FROM_MAP (program_homepage, NULL, strdup (map[index].value.m.s));
+
+    FROM_MAP (package_revision,  -1, map[index].value.m.i);
+    FROM_MAP (package_automatic, -1, map[index].value.m.i);
+    FROM_MAP (package_active,    -1, map[index].value.m.i);
+    FROM_MAP (package_dependencies, NULL, strdup (map[index].value.m.s));
+
+    FROM_MAP (maintainer_name,  NULL, strdup (map[index].value.m.s));
+    FROM_MAP (maintainer_email, NULL, strdup (map[index].value.m.s));
+
+    return pkg;
 }
 
 void
@@ -43,54 +110,6 @@ package_free (package_t *self)
     free (self->package_dependencies);
     free (self->maintainer_name);
     free (self->maintainer_email);
-}
-
-int
-package_from_map (package_t *self, sql_map_t *map)
-{
-    struct { const char *key; void *dest; } entries[] = {
-        { "package_id",           &self->package_id },
-        { "name",                 &self->program_name },
-        { "version",              &self->program_version },
-        { "license",              &self->program_license },
-        { "homepage",             &self->program_homepage },
-        { "automatic",            &self->package_automatic },
-        { "pkg_revision",         &self->package_revision },
-        { "active",               &self->package_active },
-        { "pkg_maintainer_name",  &self->maintainer_name },
-        { "pkg_maintainer_email", &self->maintainer_email },
-    };
-    size_t entry_count = sizeof (entries) / sizeof (*entries);
-    size_t i = 0;
-    int index = -1;
-
-    for (i = 0; i < entry_count; i++)
-    {
-        index = shgeti (map, entries[i].key);
-        if (index < 0) 
-        {
-            fprintf (stderr, "warning: map does not have any \"%s\" key\n",
-                    entries[i].key);
-            continue;
-        }
-
-        switch (map[index].value.sql_type)
-        {
-        case SQLITE_INTEGER: 
-            *(int *)(entries[i].dest) = map[index].value.m.i;
-            break;
-
-        case SQLITE_TEXT: 
-            *(char **)(entries[i].dest) = strdup (map[index].value.m.s);
-            break;
-
-        default:
-            fprintf (stderr, "error: package_from_map unhandled type\n");
-            return 1;
-        }
-    }
-
-    return 0;
 }
 
 void

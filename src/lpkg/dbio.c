@@ -28,6 +28,7 @@ static int db_insert_transaction (sqlite3 *db, const char *msg,
         const char *user, const char *date, time_t unix_time);
 
 static const char *strchr_reverse (const char *str, int c);
+static int get_pkg_n_cancel (void *user, sql_map_t *output);
 
 
 static const char *
@@ -237,108 +238,218 @@ db_transaction (sqlite3 *db, const char *fmt, ...)
     return rc;
 }
 
-int
-db_package_select (sqlite3 *db, package_t *pkg, package_t *p_match)
+/* database helpers */
+static int
+get_pkg_n_cancel (void *user, sql_map_t *output)
 {
-    const char SELECT_PACKAGE[] = {
-        "SELECT * "
-        "FROM package "
-        "WHERE name         = @name     AND "
-              "version      = @version  AND "
-              "pkg_revision = @revision;"
-    };
+    package_t *pkg = user;
+    *pkg = package_from_map (output);
+    return 1;
+}
+
+int
+db_exec_pkg (sqlite3 *db, const char *sql, sql_map_t *input, package_t *p_pkg)
+{
     int sql_rc = 0;
-    sqlite3_stmt *stmt = NULL;
-    sql_map_t *input = NULL;
-    sql_map_t *output = NULL;
 
     assert (db != NULL);
-    assert (pkg != NULL);
+    assert (sql != NULL);
+    assert (p_pkg != NULL);
 
-    shput (input, "@name",        SQLVAL_S (pkg->program_name));
-    shput (input, "@version",     SQLVAL_S (pkg->program_version));
-    shput (input, "@revision",    SQLVAL_I (pkg->package_revision));
-
-    sql_rc = dbmap_prepare_v2 (db, SELECT_PACKAGE, -1, input, &stmt);
-    if (sql_rc != SQLITE_OK) goto early_exit;
-
-    sql_rc = dbmap_step (stmt, &output);
-    if (sql_rc == SQLITE_ROW) 
+    sql_rc = dbmap_execute_v2 (db, sql, input, get_pkg_n_cancel, p_pkg);
+    if (sql_rc != SQLITE_ROW)
     {
-        (void)package_from_map (p_match, output);
+        fprintf (stderr, "error: failed to execute SQL - %s\n",
+                sql);
+        return 1;
     }
-
-early_exit:
-    sqlite3_reset (stmt);
-    sqlite3_finalize (stmt);
-
-    shfree (input);
-    shfree (output);
 
     return 0;
 }
 
+
+/* shortcuts */
 int
-db_package_set_active (sqlite3 *db, package_t *pkg, int active_status)
+db_package_select_3 (sqlite3 *db, sql_map_t *input, package_t *p_pkg)
+{
+    const char SELECT_PACKAGE[] = {
+        "SELECT * "
+        "FROM package "
+        "WHERE name         = @program_name     AND "
+              "version      = @program_version  AND "
+              "pkg_revision = @package_revision;"
+    };
+    assert (-1 != shgeti (input, "@program_name"));
+    assert (-1 != shgeti (input, "@program_version"));
+    assert (-1 != shgeti (input, "@package_revision"));
+
+    return db_exec_pkg (db, SELECT_PACKAGE, input, p_pkg);
+}
+
+int
+db_package_select_2 (sqlite3 *db, sql_map_t *input, package_t *p_pkg)
+{
+    const char SELECT_PACKAGE[] = {
+        "SELECT * "
+        "FROM package "
+        "WHERE name         = @program_name     AND "
+              "version      = @program_version;"
+    };
+    assert (-1 != shgeti (input, "@program_name"));
+    assert (-1 != shgeti (input, "@program_version"));
+
+    return db_exec_pkg (db, SELECT_PACKAGE, input, p_pkg);
+}
+
+int
+db_package_select_1 (sqlite3 *db, sql_map_t *input, package_t *p_pkg)
+{
+    const char SELECT_PKG_BY_NAME[] = {
+        "SELECT * "
+        "FROM package "
+        "WHERE name = @program_name "
+        "ORDER BY version DESC;"
+    };
+    assert (-1 != shgeti (input, "@program_name"));
+
+    return db_exec_pkg (db, SELECT_PKG_BY_NAME, input, p_pkg);
+}
+
+int
+db_package_select (sqlite3 *db, sql_map_t *input, package_t *p_pkg)
+{
+    if (-1 == shgeti (input, "@program_name")) return 1;
+
+    if (-1 == shgeti (input, "@program_version")) 
+    {
+        return db_package_select_1 (db, input, p_pkg);
+    }
+
+    if (-1 == shgeti (input, "@program_revision")) 
+    {
+        return db_package_select_2 (db, input, p_pkg);
+    }
+
+    return db_package_select_3 (db, input, p_pkg);
+}
+
+int
+db_package_set_active (sqlite3 *db, sql_map_t *input)
 {
     const char UPDATE_PACKAGE[] = {
         "UPDATE package "
-        "SET active = @active "
-        "WHERE package_id = @packageid;"
+        "SET active = @package_active "
+        "WHERE package_id = @package_id;"
     };
+    assert (-1 != shgeti (input, "@package_active"));
+    assert (-1 != shgeti (input, "@package_id"));
 
-    int sql_rc = 0;
-    sql_map_t *input = NULL;
+    return db_exec_pkg (db, UPDATE_PACKAGE, input, NULL);
+}
 
-    assert (db != NULL);
-    assert (pkg != NULL);
-    assert (pkg->package_id > 0);
-    assert (active_status == 0 || active_status == 1);
+/* more complex database controls */
+int
+db_package_uninstall (sqlite3 *db, sql_map_t *input)
+{
+    int rc = 0;
+    package_t match_pkg = { 0 };
+    sql_map_t *match_map = NULL;
 
-    shput (input, "@packageid", SQLVAL_I (pkg->package_id));
-    shput (input, "@active",    SQLVAL_I (active_status));
+    package_init (&match_pkg);
 
-    sql_rc = dbmap_execute (db, UPDATE_PACKAGE, -1, input);
+    /* search a matching package */
+    rc = db_package_select (db, input, &match_pkg);
+    if (rc)
+    {
+        fprintf (stderr, "error: no package found\n");
+        goto early_exit;
+    }
 
-    shfree (input);
+    /* deactiveate the package */
+    match_pkg.package_active = 0;
+    match_map = package_to_map (&match_pkg);
 
-    return EXPECT (sql_rc == SQLITE_DONE);
+    rc = db_package_set_active (db, match_map);
+    if (rc)
+    {
+        fprintf (stderr, "error: failed to deactivate the package\n");
+        goto early_exit;
+    }
+
+early_exit:
+    shfree (match_map);
+    package_free (&match_pkg);
+    return rc;
 }
 
 
-
 int
-db_package_install (sqlite3 *db, package_t *pkg)
+db_package_install (sqlite3 *db, sql_map_t *input)
 {
     const char INSERT_PACKAGE[] = {
         "INSERT INTO package (name, version, license, homepage, pkg_revision, "
                              "pkg_maintainer_name, pkg_maintainer_email, "
                              "automatic, active) "
-        "VALUES (@name, @version, @license, @homepage, @revision, @maint_name,"
-                "@maint_email, @automatic, True);"
+        "VALUES (@program_name, @program_version, @program_license, "
+                "@program_homepage, @package_revision, @maintainers_name,"
+                "@maintainers_email, @package_automatic, True);"
     };
     int rc = 0;
     int sql_rc = 0;
-    sql_map_t *input = NULL;
-    package_t pkg_match = { 0 };
-    int install_status = 0;
+    package_t match_pkg = { 0 };
 
-    shput (input, "@name",        SQLVAL_S (pkg->program_name));
-    shput (input, "@version",     SQLVAL_S (pkg->program_version));
-    shput (input, "@license",     SQLVAL_S (pkg->program_license));
-    shput (input, "@homepage",    SQLVAL_S (pkg->program_homepage));
-    shput (input, "@revision",    SQLVAL_I (pkg->package_revision));
-    shput (input, "@maint_name",  SQLVAL_S (pkg->maintainer_name));
-    shput (input, "@maint_email", SQLVAL_S (pkg->maintainer_email));
-    shput (input, "@automatic",   SQLVAL_I (pkg->package_automatic));
+    int package_installed = 0;
 
-    (void)db_package_select (db, pkg, &pkg_match);
-    install_status = (pkg_match.package_id > 0);
+    package_init (&match_pkg);
 
-    if (install_status && !pkg_match.package_active)
+    package_installed = db_package_select (db, input, &match_pkg);
+
+    if (!package_installed)
+    {
+        /* fresh install */
+        return db_exec_pkg (db, INSERT_PACKAGE, input, NULL, NULL);
+    }
+    else 
+    {
+
+
+        if (match_pkg.package_active)
+        {
+            /* reinstall? */
+            rc = db_package_set_active (db, match_map);
+            if (rc) return rc;
+
+            return db_exec_pkg (db, INSERT_PACKAGE, match_map, NULL, NULL);
+        }
+        else
+        {
+            /* reactivate */
+        }
+    }
+
+
+
+
+early_exit:
+    package_free (&match_pkg);
+    return rc;
+    
+
+
+
+
+
+
+
+
+
+    (void)db_package_select (db, input, &pkg);
+    install_status = (pkg.package_id > 0);
+
+    if (install_status && !pkg.package_active)
     {
         /* reactivate */
-        pkg->package_id = pkg_match.package_id;
+        pkg->package_id = pkg.package_id;
         if (db_package_set_active (db, pkg, 1)) goto early_exit;
     }
     else
@@ -356,7 +467,6 @@ db_package_install (sqlite3 *db, package_t *pkg)
 
 early_exit:
     package_free (&pkg_match);
-    shfree (input);
 
     if (rc)
     {
@@ -366,73 +476,6 @@ early_exit:
     return rc;
 }
 
-int
-db_package_uninstall (sqlite3 *db, package_t *pkg)
-{
-    const char DEACTIVATE_PACKAGE[] = {
-        "UPDATE package "
-        "SET active = False "
-        "WHERE package_id = @id AND "
-              "active = True;"
-    };
-    int sql_rc = 0;
-    sql_map_t *input = NULL;
-
-    shput (input, "@id", SQLVAL_I (pkg->package_id));
-
-    sql_rc = dbmap_execute (db, DEACTIVATE_PACKAGE, -1, input);
-    shfree (input);
-    input = NULL;
-
-    if (sql_rc != SQLITE_DONE)
-    {
-        fprintf (stderr, "error: dbmap_execute: %d - %s\n",
-                sql_rc, sqlite3_errstr (sql_rc));
-        return 1;
-    }
-
-    return 0;
-}
-
-int
-db_package_get (sqlite3 *db, const char *name, package_t *p_ret_pkg)
-{
-    const char SELECT_PKG_BY_NAME[] = {
-        "SELECT * "
-        "FROM package "
-        "WHERE name   = @name AND "
-              "active = True "
-        "ORDER BY version DESC;"
-    };
-    int sql_rc = 0;
-    sqlite3_stmt *stmt = NULL;
-    package_t pkg_match = { 0 };
-    sql_map_t *input = NULL;
-    sql_map_t *output = NULL;
-
-    package_init (&pkg_match);
-
-    shput (input, "@name", SQLVAL_S ((char *)name));
-
-    sql_rc = dbmap_prepare_v2 (db, SELECT_PKG_BY_NAME, -1, input, &stmt);
-    if (sql_rc != SQLITE_OK) goto early_exit;
-
-    sql_rc = dbmap_step (stmt, &output);
-    if (sql_rc == SQLITE_ROW)
-    {
-        (void)package_from_map (&pkg_match, output);
-    }
-
-early_exit:
-    sqlite3_reset (stmt);
-    sqlite3_finalize (stmt);
-
-    shfree (output);
-    shfree (input);
-
-    *p_ret_pkg = pkg_match;
-    return EXPECT (sql_rc == SQLITE_ROW);
-}
 
 /* vim: fdm=marker
  * end of file */

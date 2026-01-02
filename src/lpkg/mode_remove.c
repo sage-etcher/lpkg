@@ -1,7 +1,6 @@
 
 #include "mode.h"
 
-#include "conio.h"
 #include "dbio.h"
 #include "lpkg.h"
 #include "package.h"
@@ -67,34 +66,44 @@ lpkg_remove_main (int argc, char **argv)
 static int
 pkg_remove (char *pkg_name, int yflag)
 {
+    const char DEACTIVATE_PACKAGE[] = {
+        "UPDATE package "
+        "SET active = False "
+        "WHERE package_id = @package_id AND "
+              "active = True;"
+    };
+    int rc = 1;
     sqlite3 *db = NULL;
     package_t pkg = { 0 };
+    sql_map_t *input = NULL;
 
     db = db_open (g_dbfile);
     if (db == NULL)
     {
         fprintf (stderr, "error: failed to open database\n");
-        return -1;
+        goto early_exit;
     }
 
     if (db_package_get (db, pkg_name, &pkg))
     {
         fprintf (stderr, "error: failed to find any package named - %s\n",
                 pkg_name);
-        db_close (db);
-        return -1;
+        goto early_exit;
     }
 
-    if (db_package_uninstall (db, &pkg))
+    input = package_to_map (&pkg);
+    if (dbmap_execute_v2 (db, DEACTIVATE_PACKAGE, input, NULL, NULL))
     {
         fprintf (stderr, "error: failed to remove package\n");
-        package_free (&pkg);
-        db_close (db);
-        return -1;
+        goto early_exit;
     }
 
+    rc = 0;
+early_exit:
+    shfree (input);
     package_free (&pkg);
-    return 0;
+    db_close (db);
+    return rc;
 }
 
 
