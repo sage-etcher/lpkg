@@ -67,7 +67,6 @@ lpkg_remove_main (int argc, char **argv)
 static int
 pkg_remove (char *pkg_name, int yflag)
 {
-    int rc = 0;
     sqlite3 *db = NULL;
     package_t pkg = { 0 };
 
@@ -78,8 +77,7 @@ pkg_remove (char *pkg_name, int yflag)
         return -1;
     }
 
-    rc = db_get_package (db, pkg_name, &pkg);
-    if (rc != SQLITE_ROW) 
+    if (db_package_get (db, pkg_name, &pkg))
     {
         fprintf (stderr, "error: failed to find any package named - %s\n",
                 pkg_name);
@@ -87,8 +85,7 @@ pkg_remove (char *pkg_name, int yflag)
         return -1;
     }
 
-    rc = db_package_uninstall (db, &pkg);
-    if (rc != SQLITE_OK)
+    if (db_package_uninstall (db, &pkg))
     {
         fprintf (stderr, "error: failed to remove package\n");
         package_free (&pkg);

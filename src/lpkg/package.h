@@ -15,6 +15,7 @@ typedef struct {
     int package_revision;
     int package_automatic;
     char *package_dependencies;
+    int package_active;
 
     char *maintainer_name;
     char *maintainer_email;

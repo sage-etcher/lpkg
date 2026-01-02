@@ -119,7 +119,6 @@ handler (void *user, const char *section, const char *name, const char *value)
 static int
 pkg_install (char *pkg_name, int yflag)
 {
-    int rc = 0;
     sqlite3 *db = NULL;
     char *package_ini = NULL;
     package_t new_pkg = { 0 };
@@ -161,8 +160,7 @@ pkg_install (char *pkg_name, int yflag)
 
     /* check if database has a package by the same name */
     package_init (&old_pkg);
-    rc = db_get_package (db, new_pkg.program_name, &old_pkg);
-    if (rc == SQLITE_ROW)
+    if (!db_package_get (db, new_pkg.program_name, &old_pkg))
     {
         /* compare versions+revision of old package vs new */
         ver_cmp = version_cmp (old_pkg.program_version, new_pkg.program_version);
@@ -200,8 +198,7 @@ pkg_install (char *pkg_name, int yflag)
             }
         }
 
-        rc = db_package_uninstall (db, &old_pkg);
-        if (rc != SQLITE_OK)
+        if (db_package_uninstall (db, &old_pkg))
         {
             fprintf (stderr, "error: failure to remove package\n");
             package_free (&old_pkg);
@@ -210,8 +207,7 @@ pkg_install (char *pkg_name, int yflag)
         }
     }
 
-    rc = db_package_install (db, &new_pkg);
-    if (rc != SQLITE_OK)
+    if (db_package_install (db, &new_pkg))
     {
         fprintf (stderr, "error: failure to install package\n");
         package_free (&old_pkg);

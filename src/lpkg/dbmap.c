@@ -108,20 +108,22 @@ dbmap_step (sqlite3_stmt *stmt, sql_map_t **p_output)
 }
 
 int
-dbmap_execute (sqlite3 *db, const char *sql_text, int n, sql_map_t *input)
+dbmap_prepare_v2 (sqlite3 *db, const char *sql_text, int n, sql_map_t *input, 
+        sqlite3_stmt **p_stmt)
 {
     int rc = 0;
     sqlite3_stmt *stmt = NULL;
 
     assert (db != NULL);
     assert (sql_text != NULL);
+    assert (p_stmt != NULL);
 
     rc = sqlite3_prepare_v2 (db, sql_text, n, &stmt, NULL);
     if (rc != SQLITE_OK)
     {
         fprintf (stderr, "error: cannot prepare sqlite statment - %s\n",
                 sql_text);
-        goto early_exit;
+        return rc;
     }
 
     if (input != NULL)
@@ -130,9 +132,27 @@ dbmap_execute (sqlite3 *db, const char *sql_text, int n, sql_map_t *input)
         if (rc != SQLITE_OK)
         {
             fprintf (stderr, "error: statement bind failure\n");
-            goto early_exit;
+            return rc;
         }
     }
+
+    *p_stmt = stmt;
+    return rc;
+}
+
+
+int
+dbmap_execute (sqlite3 *db, const char *sql_text, int n, sql_map_t *input)
+{
+    int rc = 0;
+    sqlite3_stmt *stmt = NULL;
+
+    assert (db != NULL);
+    assert (sql_text != NULL);
+
+    rc = dbmap_prepare_v2 (db, sql_text, n, input, &stmt);
+    if (rc != SQLITE_OK) return rc;
+
 
     rc = sqlite3_step (stmt);
     if ((rc != SQLITE_ROW) && (rc != SQLITE_DONE))

@@ -24,6 +24,9 @@ typedef struct {
 #define SQLVAL_I(value) \
     ((sql_value_t){ .sql_type = SQLITE_INTEGER, .m = { .i = (value) } })
 
+int dbmap_prepare_v2 (sqlite3 *db, const char *sql_text, int n, 
+        sql_map_t *input, sqlite3_stmt **p_stmt);
+
 int dbmap_bind (sqlite3_stmt *stmt, sql_map_t *bind_args);
 int dbmap_step (sqlite3_stmt *stmt, sql_map_t **p_ret_map);
 

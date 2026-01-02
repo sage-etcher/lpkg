@@ -11,7 +11,6 @@
 int
 lpkg_unimplemented_main (int argc, char **argv)
 {
-    int rc = 0;
     sqlite3 *db = NULL;
     package_t read_pkg = { 0 };
     package_t pkg = { 0 };
@@ -37,12 +36,12 @@ lpkg_unimplemented_main (int argc, char **argv)
     assert (db != NULL);
 
     db_package_install (db, &pkg);
-    db_get_package (db, "test", &read_pkg);
+    db_package_get (db, "test", &read_pkg);
     package_log (&read_pkg);
 
     db_package_uninstall (db, &read_pkg);
 
-    db_get_package (db, "test", &read_pkg);
+    db_package_get (db, "test", &read_pkg);
     package_log (&read_pkg);
 
     db_close (db);

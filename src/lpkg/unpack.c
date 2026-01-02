@@ -23,8 +23,6 @@ unpack_fread (const char *archive, const char *filepath)
     mode_t fmode;
     size_t fsize;
 
-    char c;
-
     uint8_t *buf = NULL;
     int size;
 

@@ -17,9 +17,12 @@ int text_length, void (*free_cb)(void *));
 
 int db_transaction (sqlite3 *db, const char *fmt, ...);
 
+
+int db_package_select (sqlite3 *db, package_t *pkg, package_t *pkg_match);
+int db_package_set_active (sqlite3 *db, package_t *p_pkg, int active_status);
 int db_package_install (sqlite3 *db, package_t *p_pkg);
 int db_package_uninstall (sqlite3 *db, package_t *p_pkg);
-int db_get_package (sqlite3 *db, const char *name, package_t *p_ret_pkg);
+int db_package_get (sqlite3 *db, const char *name, package_t *p_ret_pkg);
 
 
 #endif

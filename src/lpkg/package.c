@@ -14,14 +14,18 @@ void
 package_init (package_t *self)
 {
     *self = (package_t){
-        .package_id = -1,
+        .package_id = 0,
+
         .program_name = NULL,
         .program_version = NULL,
         .program_license = NULL,
         .program_homepage = NULL,
+
         .package_revision = 0,
         .package_automatic = 0,
         .package_dependencies = NULL,
+        .package_active = 1,
+
         .maintainer_name = NULL,
         .maintainer_email = NULL,
     };
@@ -52,6 +56,7 @@ package_from_map (package_t *self, sql_map_t *map)
         { "homepage",             &self->program_homepage },
         { "automatic",            &self->package_automatic },
         { "pkg_revision",         &self->package_revision },
+        { "active",               &self->package_active },
         { "pkg_maintainer_name",  &self->maintainer_name },
         { "pkg_maintainer_email", &self->maintainer_email },
     };

@@ -18,18 +18,11 @@
 
 #define SQLITE_OPEN_READWRITECREATE (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE)
 
-#define SQLITE_BIND_WRAP(TYPE,STMT,NAME,...) do {                           \
-        int param_index = 0;                                                \
-                                                                            \
-        /* fprintf (stderr, "wrap: %s\n", NAME); */                         \
-        param_index = sqlite3_bind_parameter_index (STMT, NAME);            \
-        if (param_index == 0)                                               \
-        {                                                                   \
-            return -1;                                                      \
-        }                                                                   \
-                                                                            \
-        return sqlite3_bind_ ## TYPE (STMT, param_index, __VA_ARGS__);      \
-    } while (0)
+
+/* expect that `expr` return true, return a success as 0;
+ * while if `expr` returns false, return an error as != 0. */
+#define EXPECT(expr) (!(expr))
+
 
 static int db_insert_transaction (sqlite3 *db, const char *msg,
         const char *user, const char *date, time_t unix_time);
@@ -127,14 +120,16 @@ db_init_tables (sqlite3 *db)
             ",pkg_maintainer_name TEXT"
             ",pkg_maintainer_email TEXT"
             ",automatic BOOLEAN NOT NULL"
-            ",active BOOLEAN NOT NULL);"
+            ",active BOOLEAN NOT NULL"
+            ",UNIQUE(name, version, pkg_revision));"
 
         "CREATE TABLE file_ownership "
             "(file_id INTEGER PRIMARY KEY ASC AUTOINCREMENT"
             ",package_id REFERENCES package"
             ",path TEXT NOT NULL"
             ",checksum TEXT"
-            ",active BOOLEAN NOT NULL);"
+            ",active BOOLEAN NOT NULL"
+            ",UNIQUE(active, path));"
 
         "CREATE TABLE dependency "
             "(dependency_id INTEGER PRIMARY KEY ASC AUTOINCREMENT"
@@ -142,7 +137,8 @@ db_init_tables (sqlite3 *db)
             ",dep_name TEXT NOT NULL"
             ",dep_ver_min STRING"
             ",dep_ver_max STRING"
-            ",active BOOLEAN NOT NULL);"
+            ",active BOOLEAN NOT NULL"
+            ",UNIQUE(active, package_id, dep_name));"
     }; /* }}} */
     char *sql_errmsg = NULL;
 
@@ -155,15 +151,17 @@ db_init_tables (sqlite3 *db)
         return -1;
     }
 
+    (void)db_transaction (db, "initialized database.");
+
     /* log the transaction */
-    return db_transaction (db, "initialized database.");
+    return 0;
 }
 
 static int 
 db_insert_transaction (sqlite3 *db, const char *msg, const char *user, 
         const char *date, time_t unix_time)
 {
-    int rc = -1;
+    int sql_rc = -1;
 
     const char TRANSACTION_LOG[] = {
         "INSERT INTO transaction_log (user,date,unix_time,description) "
@@ -171,7 +169,7 @@ db_insert_transaction (sqlite3 *db, const char *msg, const char *user,
     };
     const char *tail = NULL;
     sqlite3_stmt *stmt = NULL;
-    sql_map_t *bind_args = NULL;
+    sql_map_t *input = NULL;
 
     if (sqlite3_prepare_v2 (db, TRANSACTION_LOG, -1, &stmt, &tail))
     {
@@ -179,33 +177,30 @@ db_insert_transaction (sqlite3 *db, const char *msg, const char *user,
         goto cleanup;
     }
 
-    shput (bind_args, "@user",      SQLVAL_S ((char *)user));
-    shput (bind_args, "@msg",       SQLVAL_S ((char *)msg));
-    shput (bind_args, "@date",      SQLVAL_S ((char *)date));
-    shput (bind_args, "@unix_time", SQLVAL_I (unix_time));
-    if ((rc = dbmap_bind (stmt, bind_args)))
+    shput (input, "@user",      SQLVAL_S ((char *)user));
+    shput (input, "@msg",       SQLVAL_S ((char *)msg));
+    shput (input, "@date",      SQLVAL_S ((char *)date));
+    shput (input, "@unix_time", SQLVAL_I (unix_time));
+    if ((sql_rc = dbmap_bind (stmt, input)))
     {
         fprintf (stderr, "error: failure binding to log statement: %s\n",
-                sqlite3_errstr (rc));
+                sqlite3_errstr (sql_rc));
         goto cleanup;
     }
 
-    rc = sqlite3_step (stmt);
-    switch (rc)
+    sql_rc = sqlite3_step (stmt);
+    if (sql_rc != SQLITE_DONE)
     {
-    case SQLITE_DONE: rc = 0; break;
-    default:
         fprintf (stderr, "error: failure executing log statement: %s\n",
-                sqlite3_errstr (rc));
-        break;
+                sqlite3_errstr (sql_rc));
     }
 
 cleanup:
     sqlite3_reset (stmt);
     sqlite3_finalize (stmt);
-    shfree (bind_args);
+    shfree (input);
 
-    return rc;
+    return EXPECT (sql_rc == SQLITE_DONE);
 }
 
 int
@@ -243,16 +238,77 @@ db_transaction (sqlite3 *db, const char *fmt, ...)
 }
 
 int
-db_bind_vvv_int (sqlite3_stmt *stmt, const char *name, int value)
-    { SQLITE_BIND_WRAP (int, stmt, name, value); }
+db_package_select (sqlite3 *db, package_t *pkg, package_t *p_match)
+{
+    const char SELECT_PACKAGE[] = {
+        "SELECT * "
+        "FROM package "
+        "WHERE name         = @name     AND "
+              "version      = @version  AND "
+              "pkg_revision = @revision;"
+    };
+    int sql_rc = 0;
+    sqlite3_stmt *stmt = NULL;
+    sql_map_t *input = NULL;
+    sql_map_t *output = NULL;
+
+    assert (db != NULL);
+    assert (pkg != NULL);
+
+    shput (input, "@name",        SQLVAL_S (pkg->program_name));
+    shput (input, "@version",     SQLVAL_S (pkg->program_version));
+    shput (input, "@revision",    SQLVAL_I (pkg->package_revision));
+
+    sql_rc = dbmap_prepare_v2 (db, SELECT_PACKAGE, -1, input, &stmt);
+    if (sql_rc != SQLITE_OK) goto early_exit;
+
+    sql_rc = dbmap_step (stmt, &output);
+    if (sql_rc == SQLITE_ROW) 
+    {
+        (void)package_from_map (p_match, output);
+    }
+
+early_exit:
+    sqlite3_reset (stmt);
+    sqlite3_finalize (stmt);
+
+    shfree (input);
+    shfree (output);
+
+    return 0;
+}
 
 int
-db_bind_vvv_text (sqlite3_stmt *stmt, const char *name, const char *text, 
-        int text_length, void (*free_cb)(void *))
-    { SQLITE_BIND_WRAP (text, stmt, name, text, text_length, free_cb); }
+db_package_set_active (sqlite3 *db, package_t *pkg, int active_status)
+{
+    const char UPDATE_PACKAGE[] = {
+        "UPDATE package "
+        "SET active = @active "
+        "WHERE package_id = @packageid;"
+    };
+
+    int sql_rc = 0;
+    sql_map_t *input = NULL;
+
+    assert (db != NULL);
+    assert (pkg != NULL);
+    assert (pkg->package_id > 0);
+    assert (active_status == 0 || active_status == 1);
+
+    shput (input, "@packageid", SQLVAL_I (pkg->package_id));
+    shput (input, "@active",    SQLVAL_I (active_status));
+
+    sql_rc = dbmap_execute (db, UPDATE_PACKAGE, -1, input);
+
+    shfree (input);
+
+    return EXPECT (sql_rc == SQLITE_DONE);
+}
+
+
 
 int
-db_package_install (sqlite3 *db, package_t *p_pkg)
+db_package_install (sqlite3 *db, package_t *pkg)
 {
     const char INSERT_PACKAGE[] = {
         "INSERT INTO package (name, version, license, homepage, pkg_revision, "
@@ -262,52 +318,76 @@ db_package_install (sqlite3 *db, package_t *p_pkg)
                 "@maint_email, @automatic, True);"
     };
     int rc = 0;
-    sql_map_t *bind_args = NULL;
+    int sql_rc = 0;
+    sql_map_t *input = NULL;
+    package_t pkg_match = { 0 };
+    int install_status = 0;
 
-    shput (bind_args, "@name",        SQLVAL_S (p_pkg->program_name));
-    shput (bind_args, "@version",     SQLVAL_S (p_pkg->program_version));
-    shput (bind_args, "@license",     SQLVAL_S (p_pkg->program_license));
-    shput (bind_args, "@homepage",    SQLVAL_S (p_pkg->program_homepage));
-    shput (bind_args, "@revision",    SQLVAL_I (p_pkg->package_revision));
-    shput (bind_args, "@maint_name",  SQLVAL_S (p_pkg->maintainer_name));
-    shput (bind_args, "@maint_email", SQLVAL_S (p_pkg->maintainer_email));
-    shput (bind_args, "@automatic",   SQLVAL_I (p_pkg->package_automatic));
+    shput (input, "@name",        SQLVAL_S (pkg->program_name));
+    shput (input, "@version",     SQLVAL_S (pkg->program_version));
+    shput (input, "@license",     SQLVAL_S (pkg->program_license));
+    shput (input, "@homepage",    SQLVAL_S (pkg->program_homepage));
+    shput (input, "@revision",    SQLVAL_I (pkg->package_revision));
+    shput (input, "@maint_name",  SQLVAL_S (pkg->maintainer_name));
+    shput (input, "@maint_email", SQLVAL_S (pkg->maintainer_email));
+    shput (input, "@automatic",   SQLVAL_I (pkg->package_automatic));
 
-    rc = dbmap_execute (db, INSERT_PACKAGE, -1, bind_args);
-    shfree (bind_args);
-    bind_args = NULL;
+    (void)db_package_select (db, pkg, &pkg_match);
+    install_status = (pkg_match.package_id > 0);
 
-    if (rc != SQLITE_DONE)
+    if (install_status && !pkg_match.package_active)
     {
-        fprintf (stderr, "error: dbmap_execute: %d - %s\n",
-                rc, sqlite3_errstr (rc));
-        return rc;
+        /* reactivate */
+        pkg->package_id = pkg_match.package_id;
+        if (db_package_set_active (db, pkg, 1)) goto early_exit;
+    }
+    else
+    {
+        if (install_status && pkg_match.package_active)
+        {
+            /* reinstall */
+            if (db_package_uninstall (db, pkg)) goto early_exit;
+        }
+
+        /* install */
+        sql_rc = dbmap_execute (db, INSERT_PACKAGE, -1, input);
+        rc = EXPECT (SQLITE_DONE == sql_rc);
     }
 
-    return SQLITE_OK;
+early_exit:
+    package_free (&pkg_match);
+    shfree (input);
+
+    if (rc)
+    {
+        fprintf (stderr, "error: dbmap_execute: %d - %s\n",
+                sql_rc, sqlite3_errstr (sql_rc));
+    }
+    return rc;
 }
 
 int
-db_package_uninstall (sqlite3 *db, package_t *p_pkg)
+db_package_uninstall (sqlite3 *db, package_t *pkg)
 {
     const char DEACTIVATE_PACKAGE[] = {
         "UPDATE package "
         "SET active = False "
-        "WHERE package_id = @id;"
+        "WHERE package_id = @id AND "
+              "active = True;"
     };
-    int rc = 0;
-    sql_map_t *bind_args = NULL;
+    int sql_rc = 0;
+    sql_map_t *input = NULL;
 
-    shput (bind_args, "@id", SQLVAL_I (p_pkg->package_id));
+    shput (input, "@id", SQLVAL_I (pkg->package_id));
 
-    rc = dbmap_execute (db, DEACTIVATE_PACKAGE, -1, bind_args);
-    shfree (bind_args);
-    bind_args = NULL;
+    sql_rc = dbmap_execute (db, DEACTIVATE_PACKAGE, -1, input);
+    shfree (input);
+    input = NULL;
 
-    if (rc != SQLITE_DONE)
+    if (sql_rc != SQLITE_DONE)
     {
         fprintf (stderr, "error: dbmap_execute: %d - %s\n",
-                rc, sqlite3_errstr (rc));
+                sql_rc, sqlite3_errstr (sql_rc));
         return 1;
     }
 
@@ -315,61 +395,43 @@ db_package_uninstall (sqlite3 *db, package_t *p_pkg)
 }
 
 int
-db_get_package (sqlite3 *db, const char *name, package_t *p_ret_pkg)
+db_package_get (sqlite3 *db, const char *name, package_t *p_ret_pkg)
 {
     const char SELECT_PKG_BY_NAME[] = {
         "SELECT * "
         "FROM package "
-        "WHERE "
-            "name = @name AND "
-            "active = True "
+        "WHERE name   = @name AND "
+              "active = True "
         "ORDER BY version DESC;"
     };
-    int rc = 0;
-    const char *tail = NULL;
+    int sql_rc = 0;
     sqlite3_stmt *stmt = NULL;
-    package_t pkg = { 0 };
-    sql_map_t *row = NULL;
+    package_t pkg_match = { 0 };
+    sql_map_t *input = NULL;
+    sql_map_t *output = NULL;
 
-    package_init (&pkg);
+    package_init (&pkg_match);
 
-    rc = sqlite3_prepare_v2 (db, SELECT_PKG_BY_NAME, -1, &stmt, &tail);
-    if (rc != SQLITE_OK)
-    {
-        /* cleanup and exit w/ error */
-        fprintf (stderr, "error: failed to prepare sql statement - %s\n",
-                SELECT_PKG_BY_NAME);
-        goto early_exit;
-    }
+    shput (input, "@name", SQLVAL_S ((char *)name));
 
-    rc = db_bind_vvv_text (stmt, "@name", name, -1, SQLITE_STATIC);
-    if (rc != SQLITE_OK)
-    {
-        fprintf (stderr, "error: failed to bind parameter\n");
-        goto early_exit;
-    }
+    sql_rc = dbmap_prepare_v2 (db, SELECT_PKG_BY_NAME, -1, input, &stmt);
+    if (sql_rc != SQLITE_OK) goto early_exit;
 
-    rc = dbmap_step (stmt, &row);
-    if (rc == SQLITE_ROW)
+    sql_rc = dbmap_step (stmt, &output);
+    if (sql_rc == SQLITE_ROW)
     {
-        (void)package_from_map (&pkg, row);
-    }
-    else if (rc != SQLITE_DONE)
-    {
-        /* cleanup and exit w/ error */
-        fprintf (stderr, "error: failed execute sql statement - %s\n",
-                SELECT_PKG_BY_NAME);
-        goto early_exit;
+        (void)package_from_map (&pkg_match, output);
     }
 
 early_exit:
     sqlite3_reset (stmt);
     sqlite3_finalize (stmt);
-    shfree (row);
-    row = NULL;
 
-    *p_ret_pkg = pkg;
-    return rc;
+    shfree (output);
+    shfree (input);
+
+    *p_ret_pkg = pkg_match;
+    return EXPECT (sql_rc == SQLITE_ROW);
 }
 
 /* vim: fdm=marker
