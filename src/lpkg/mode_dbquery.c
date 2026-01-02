@@ -107,7 +107,18 @@ query_database (char *filepath, char *stmt_text)
     }
 
     col_count = sqlite3_column_count (stmt);
-    assert (col_count > 0);
+    if (col_count == 0)
+    {
+        rc = sqlite3_step (stmt);
+        if (rc != SQLITE_DONE)
+        {
+            fprintf (stderr, "error: sqlite_step() returned error: %s\n",
+                    sqlite3_errstr (rc));
+        }
+
+        printf ("no results\n");
+        goto early_exit;
+    }
 
     col_widths = malloc (col_count * sizeof (*col_widths));
     col_values = malloc (col_count * sizeof (*col_values));
@@ -162,6 +173,7 @@ query_database (char *filepath, char *stmt_text)
         printf ("\n");
     }
 
+early_exit:
     for (i = 0; i < (int)row_count; i++)
     {
         free (col_values[i]);

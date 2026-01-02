@@ -14,7 +14,7 @@ vpromptf (const char *prompt_fmt, va_list args)
 {
     char *line = NULL;
     size_t line_size = 0;
-    char c = 0;
+    int c = 0;
 
     vfprintf (stdout, prompt_fmt, args);
     fflush (stdout);
